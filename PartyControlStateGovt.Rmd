@@ -1,0 +1,872 @@
+---
+title: "Party Control of State Government"
+author: "Andy Green"
+date: "11/12/2019"
+output: pdf_document
+---
+
+
+Andy Green
+
+11/12/19
+
+This file contains the code I used to build a dataset aimed at analyzing the relationship between party control of state government and a variety of well-being metrics at the state level. As the dataset encompasses data from a variety of different sources, this document is split up such that each of the primary metrics is given a sub-section. The source of the data, including any relevant instructions on how to query the exact data I used, are included under each sub-section heading.
+
+
+## Set-up:
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+## Install packages
+#install.packages('tidyverse')
+#install.packages('rvest')
+
+## Load packages
+library(tidyverse)
+library(rvest)
+library(dplyr)
+
+## Set working directory
+setwd("~/Documents/PartyControlStateGovt")
+```
+
+
+## Compiling the state-level party control dataset
+
+
+Source: I scraped the data from each state's invidividual "Party Control of State Government" page on Ballotpedia. The URL for each state, as seen in the loop below, is given by: https://ballotpedia.org/Party_control_of_<insert state name here>_state_government.
+
+
+```{r}
+#### Looping through each of the states on Ballotpedia ####
+
+## Setting up the list of state names for looping. Nebraska has to be removed because they have a unicameral legislature, and thus their table is formatted differently on the web page. I'm collecting the data for them separately outside of the loop. The other state names are being altered to add an underscore such that the URL's will function correctly. These will be removed  later.
+state.name2 <- as.list(state.name)
+state.name2[27] <- NULL
+state.name2[28] <- "New_Hampshire"
+state.name2[29] <- "New_Jersey"
+state.name2[30] <- "New_Mexico"
+state.name2[31] <- "New_York"
+state.name2[32] <- "North_Carolina"
+state.name2[33] <- "North_Dakota"
+state.name2[38] <- "Rhode_Island"
+state.name2[39] <- "South_Carolina"
+state.name2[40] <- "South_Dakota"
+state.name2[47] <- "West_Virginia"
+
+## Creating a list to append all the individual state dataframes to
+datalist = list()
+
+## Looping through each state
+for (state in state.name2)
+{
+    ## Concatenating the state name to the url
+    url <- paste("https://ballotpedia.org/Party_control_of_", state, "_state_government", sep = "", collapse = NULL)
+    
+    ## Reading in the webpage
+    webpage <- read_html(url)
+    
+    ## Extracting the table
+    data <- html_nodes(webpage, "table.wikitable")
+    data <- html_table(data)
+    
+    ## Converting to dataframe
+    data <- as.data.frame(data)
+    
+    ## Transposing rows and columns
+    data <- t(data)
+    
+    ## Fixing column names (currently stored in first row)
+    colnames(data) <- as.character(unlist(data[1,]))
+    data <- data[-1, ]
+    
+    ## Pulling out the year from the rownames
+    data2 <- as.data.frame(rownames(data))
+    names(data2) <- "year_end"
+    data <- cbind(data, data2)
+    data$year_end <- sub('.','', data$year_end)
+    
+    ## Fixing the column name for the House, as some states call it "Assembly"
+    names(data)[3]<-"House"
+    
+    ## Filling in the state name for all rows
+    data$state <- state
+    
+    ## Converting the year values into the full year value
+    data$year_beg[data$year_end > 50] <- 19
+    data$year_beg[data$year_end < 50] <- 20
+    data$year <- paste(data$year_beg, data$year_end, sep = "")
+    
+    ## Getting rid of the underscores in the state names
+    data$state <- sub('_',' ', data$state)
+        
+    ## Creating a variable that concatenates state and year (will be needed for lookups later)
+    data$stateyear <- paste(data$state,data$year, sep = "")
+        
+    ## Summarizing the total government control
+    data$total_gov[data$Governor == "D" & data$Senate == "D" & data$House == "D"] <- "D"
+    data$total_gov[data$Governor == "R" & data$Senate == "R" & data$House == "R"] <- "R"
+    data$total_gov[data$Governor == "D" & data$Senate == "D" & data$House == "R"] <- "Split"
+    data$total_gov[data$Governor == "D" & data$Senate == "R" & data$House == "D"] <- "Split"
+    data$total_gov[data$Governor == "D" & data$Senate == "R" & data$House == "R"] <- "Split"
+    data$total_gov[data$Governor == "R" & data$Senate == "D" & data$House == "R"] <- "Split"
+    data$total_gov[data$Governor == "R" & data$Senate == "R" & data$House == "D"] <- "Split"
+    data$total_gov[data$Governor == "R" & data$Senate == "D" & data$House == "D"] <- "Split"
+    data$total_gov[data$Governor == "I" & data$Senate == "S" & data$House == "D"] <- "Split"
+    data$total_gov[data$Governor == "I" & data$Senate == "R" & data$House == "D"] <- "Split"
+    data$total_gov[data$Governor == "I" & data$Senate == "R" & data$House == "R"] <- "Split"
+    data$total_gov[data$Governor == "R" & data$Senate == "R" & data$House == "S"] <- "Split"
+    data$total_gov[data$Governor == "R" & data$Senate == "S" & data$House == "R"] <- "Split"
+    data$total_gov[data$Governor == "R" & data$Senate == "D" & data$House == "S"] <- "Split"
+    data$total_gov[data$Governor == "I" & data$Senate == "D" & data$House == "D"] <- "Split"
+    data$total_gov[data$Governor == "D" & data$Senate == "S" & data$House == "D"] <- "Split"
+    data$total_gov[data$Governor == "D" & data$Senate == "S" & data$House == "R"] <- "Split"
+    data$total_gov[data$Governor == "I" & data$Senate == "D" & data$House == "R"] <- "Split"
+    data$total_gov[data$Governor == "D" & data$Senate == "D" & data$House == "S"] <- "Split"
+    data$total_gov[data$Governor == "D" & data$Senate == "R" & data$House == "S"] <- "Split"
+    data$total_gov[data$Governor == "R" & data$Senate == "S" & data$House == "D"] <- "Split"
+    data$total_gov[data$Governor == "D" & data$Senate == "R[1]" & data$House == "D"] <- "Split"
+    data$total_gov[data$Governor == "D[1]" & data$Senate == "R" & data$House == "R"] <- "Split"
+    
+    ## Summarizing in more detail the total government control
+    data$total_gov_detail[data$Governor == "D" & data$Senate == "D" & data$House == "D"] <- "D GOV / D LEG"
+    data$total_gov_detail[data$Governor == "R" & data$Senate == "R" & data$House == "R"] <- "R GOV / R LEG"
+    data$total_gov_detail[data$Governor == "D" & data$Senate == "D" & data$House == "R"] <- "D GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "D" & data$Senate == "R" & data$House == "D"] <- "D GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "D" & data$Senate == "R" & data$House == "R"] <- "D GOV / R LEG"
+    data$total_gov_detail[data$Governor == "R" & data$Senate == "D" & data$House == "R"] <- "R GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "R" & data$Senate == "R" & data$House == "D"] <- "R GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "R" & data$Senate == "D" & data$House == "D"] <- "R GOV / D LEG"
+    data$total_gov_detail[data$Governor == "I" & data$Senate == "S" & data$House == "D"] <- "I GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "I" & data$Senate == "R" & data$House == "D"] <- "I GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "I" & data$Senate == "R" & data$House == "R"] <- "I GOV / R LEG"
+    data$total_gov_detail[data$Governor == "R" & data$Senate == "R" & data$House == "S"] <- "R GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "R" & data$Senate == "S" & data$House == "R"] <- "R GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "R" & data$Senate == "D" & data$House == "S"] <- "R GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "I" & data$Senate == "D" & data$House == "D"] <- "I GOV / D LEG"
+    data$total_gov_detail[data$Governor == "D" & data$Senate == "S" & data$House == "D"] <- "D GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "D" & data$Senate == "S" & data$House == "R"] <- "D GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "I" & data$Senate == "D" & data$House == "R"] <- "I GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "D" & data$Senate == "D" & data$House == "S"] <- "D GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "D" & data$Senate == "R" & data$House == "S"] <- "D GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "R" & data$Senate == "S" & data$House == "D"] <- "R GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "D" & data$Senate == "R[1]" & data$House == "D"] <- "D GOV / SPLIT LEG"
+    data$total_gov_detail[data$Governor == "D[1]" & data$Senate == "R" & data$House == "R"] <- "D GOV / R LEG"
+    
+    ## Append the dataframe to our dataframe list
+    datalist[[state]] <- data
+}
+
+#### Creating the Nebraska dataset ####
+
+## Setting the URL for Nebraska
+url <- "https://ballotpedia.org/Party_control_of_Nebraska_state_government"
+
+## Reading in the webpage
+webpage <- read_html(url)
+
+## Extracting the table
+data <- html_nodes(webpage, "table.wikitable")
+data <- html_table(data)
+
+## Converting to dataframe
+data <- as.data.frame(data)
+
+## Transposing rows and columns
+data <- t(data)
+
+## Fixing column names (currently stored in first row)
+colnames(data) <- as.character(unlist(data[1,]))
+data <- data[-1, ]
+
+## Converting to dataframe
+data <- as.data.frame(data)
+
+## Adding in House column (needs to match up with other states)
+data$House <- "-"
+
+## Pulling out the year from the rownames
+data2 <- as.data.frame(rownames(data))
+names(data2) <- "year_end"
+data <- cbind(data, data2)
+data$year_end <- sub('.','', data$year_end)
+
+## Filling in the state name for all rows
+data$state <- "Nebraska"
+
+## Converting the year values into the full year value
+data$year_beg[data$year_end > 50] <- 19
+data$year_beg[data$year_end < 50] <- 20
+data$year <- paste(data$year_beg, data$year_end, sep = "")
+    
+## Creating a variable that concatenates state and year (will be needed for lookups later)
+data$stateyear <- paste(data$state,data$year, sep = "")
+
+## Adding the columns for total government control and detailed government control
+data$total_gov <- "-"
+data$total_gov_detail <- "-"
+
+## Append the dataframe to our dataframe list
+datalist[["Nebraska"]] <- data
+
+####
+
+## Appending all the dataframes from our dataframe list into a master data frame
+data_total <- do.call(rbind, datalist)
+```
+
+
+## Compiling the Median Household Income Dataset:
+
+Source: https://www2.census.gov/programs-surveys/cps/tables/time-series/historical-income-households/h08.xls
+
+(Saved down as csv, but otherwise untouched)
+
+
+```{r}
+## Reading in the csv file
+medhh <- read.csv(file = "MedianHHIncome.csv", header = TRUE, sep = ",", skip = 3, stringsAsFactors = FALSE)
+
+## Getting rid of the 2018 dollars data - I'm only going to analyze it in terms of current dollars
+medhh <- medhh[1:54,]
+
+## Deleting the standard error columns
+medhh <- medhh[-c(seq(from = 3, to = 75, by =2))] 
+
+## Deleting the row that says "Median income" for every column
+medhh <- medhh[-2, ]
+
+## Deleting the duplicative values for 2017 and 2013. Referenced the footnotes at the below link; for 2017, using the values from the updated system (footnote 40); for 2013, using the values from the redesigned question.
+## https://www.census.gov/topics/income-poverty/income/guidance/cps-historic-footnotes.html
+medhh <- medhh[-4]
+medhh <- medhh[-8]
+
+## Getting rid of footnotes in year values
+medhh[1,] <- substr(medhh[1,], 1,4)
+
+## Making the years the column names
+colnames(medhh) <- as.character(unlist(medhh[1,]))
+medhh <- medhh[-1, ]
+
+## Making the states the row names
+row.names(medhh) <- as.character(unlist(medhh[1]))
+medhh$Stat <- NULL
+
+## Converting it into a format that is merge-able with the master dataset
+medhh_val <- data.frame(matrix(0, ncol = 2, nrow = 0))
+colnames(medhh_val) <- c("stateyear", "median_hh_income")
+
+for (row in 1:nrow(medhh))
+{
+    for (col in 1:ncol(medhh))
+    {
+        data3 <- data.frame(matrix(0, ncol = 2, nrow = 1))
+        colnames(data3) <- c("stateyear", "median_hh_income")
+        data3$stateyear <- paste(rownames(medhh)[row],colnames(medhh)[col], sep = "")
+        data3$median_hh_income <- medhh[row,col]
+        medhh_val <- rbind(medhh_val, data3)
+    }
+}
+
+## Getting rid of commas in the median hh income values
+medhh_val$median_hh_income <- sub(',','', medhh_val$median_hh_income)
+
+## Converting median hh income values to numeric type
+medhh_val$median_hh_income <- as.numeric(as.character(medhh_val$median_hh_income))
+```
+
+```{r}
+## Merging median household income into the master dataset
+data_total <- merge(x = data_total, y = medhh_val, by = "stateyear", all.x = TRUE)
+```
+
+
+## Compiling the Poverty Rate dataset:
+
+Source: https://www2.census.gov/programs-surveys/cps/tables/time-series/historical-poverty-people/hstpov21.xls
+
+(Saved down as csv, but otherwise untouched)
+
+
+```{r}
+## Reading in the csv file
+poverty <- read.csv(file = "Poverty.csv", header = TRUE, sep = ",", skip = 3, stringsAsFactors = FALSE)
+
+## Fixing the column names
+colnames(poverty) <- as.character(unlist(poverty[1,]))
+poverty <- poverty[-1, ]
+
+## Fixing the row index
+rownames(poverty) <- NULL
+
+## Creating the year column and filling it in appropriately
+poverty$year <- ""
+poverty$year[1:51] <- 2018
+poverty$year[54:104] <- 2017
+poverty$year[160:210] <- 2016
+poverty$year[213:263] <- 2015
+poverty$year[266:316] <- 2014
+poverty$year[319:369] <- 2013
+poverty$year[425:475] <- 2012
+poverty$year[478:528] <- 2011
+poverty$year[531:581] <- 2010
+poverty$year[584:634] <- 2009
+poverty$year[637:687] <- 2008
+poverty$year[690:740] <- 2007
+poverty$year[743:793] <- 2006
+poverty$year[796:846] <- 2005
+poverty$year[849:899] <- 2004
+poverty$year[902:952] <- 2003
+poverty$year[955:1005] <- 2002
+poverty$year[1008:1058] <- 2001
+poverty$year[1061:1111] <- 2000
+poverty$year[1114:1164] <- 1999
+poverty$year[1167:1217] <- 1998
+poverty$year[1220:1270] <- 1997
+poverty$year[1273:1323] <- 1996
+poverty$year[1326:1376] <- 1995
+poverty$year[1379:1429] <- 1994
+poverty$year[1432:1482] <- 1993
+poverty$year[1485:1535] <- 1992
+
+## Deleting unnecessary lines, duplicate year values, and values for years before 1992. Referenced the footnotes at the below link in order to make decisions on the duplicates for 2017 and 2013. Used the values consistent with the decisions from the Median HH Income variable above for these years.
+## https://www.census.gov/topics/income-poverty/poverty/guidance/poverty-footnotes/cps-historic-footnotes.html
+poverty <- poverty[poverty$year != "",]
+
+## Creating the stateyear column
+poverty$stateyear <- paste(poverty$STATE,poverty$year, sep = "")
+
+## Creating the subset of the poverty dataset to merge into the master dataset
+poverty_val <- poverty
+poverty_val$STATE <- NULL
+poverty_val$Total <- NULL
+poverty_val$Number <- NULL
+poverty_val$year <- NULL
+poverty_val[1] <- NULL
+poverty_val[2] <- NULL
+
+## Changing the column name for the poverty rate
+names(poverty_val)[1] <- "poverty_rate"
+
+## Converting poverty rate values to numeric type
+poverty_val$poverty_rate <- as.numeric(as.character(poverty_val$poverty_rate))
+```
+
+```{r}
+## Merging Poverty Rate into the master dataset
+data_total <- merge(x = data_total, y = poverty_val, by = "stateyear", all.x = TRUE)
+```
+
+
+## Compiling the Uninsured Rate Dataset:
+
+Sources:
+
+1. (1999-2012): https://www2.census.gov/programs-surveys/demo/tables/health-insurance/time-series/hib/hihistt4b.xls
+
+(Saved down as csv, but otherwise untouched)
+
+2. (2013-2017): https://www.census.gov/cps/data/cpstablecreator.html
+
+- Years: 2014-2018 (These are the years the survey was conducted; they represent the values for the prior year.) I had to use the traditional income questions for the 2014 survey (2013 data), as that's the only option available. Note that this is different than the other metrics, where I used the redesigned income questions.
+- Persons - All
+- Separate Table For Each Year
+- Row Variables: State
+- Column Variables: Health Insurance Coverage
+
+(Saved down as separate csv files for each year, but otherwise untouched)
+
+
+```{r}
+##### 1999 - 2012 #####
+
+## Reading in the csv file
+insurance <- read.csv(file = "Insurance.csv", header = TRUE, sep = ",", skip = 5, stringsAsFactors = FALSE)
+
+## Getting rid of unneccessary columns
+insurance[7:38] <- NULL
+
+## Getting rid of values for Total US so I can fill in the state names automatically
+insurance <- insurance[-1:-15, ]
+
+## Re-setting the row index
+rownames(insurance) <- NULL
+
+## Getting rid of values for DC so I can fill in the state names automatically
+insurance <- insurance[-121:-135, ]
+
+## Filling in the state names
+insurance$state <- rep(state.name, each = 15, length.out = length(insurance$X))
+
+## Fixing the year values
+insurance$year <- substr(insurance$X, 0, 4)
+
+## Creating the stateyear column
+insurance$stateyear <- paste(insurance$state,insurance$year, sep = "")
+
+## Creating the subset of the insurance dataset to merge with the master dataset
+insurance_val <- insurance
+insurance_val$X <- NULL
+insurance_val$X.1 <- NULL
+insurance_val$Number <- NULL
+insurance_val$SE <- NULL
+insurance_val$SE.1 <- NULL
+insurance_val$state <- NULL
+insurance_val$year <- NULL
+
+## Changing the name of the uninsured column for the merge
+names(insurance_val)[1] <- "uninsured_rate"
+```
+
+```{r}
+##### 2013 - 2017 #####
+
+## Looping through the files for each year
+for (year in seq(2013,2017))
+{
+    ## Creating the filename
+    filename = paste("insurance_", year, ".csv", sep = "", collapse = NULL)
+    
+    ## Reading in the csv file
+    if (year == 2013) {
+        insurance_year <- read.csv(file = filename, header = TRUE, sep = ",", skip = 6, stringsAsFactors = FALSE)
+    } else {
+        insurance_year <- read.csv(file = filename, header = TRUE, sep = ",", skip = 4, stringsAsFactors = FALSE)
+    }
+    
+    ## Getting rid of unneccessary columns
+    insurance_year[5:26] <- NULL
+    
+    ## Fixing the issue with Alabama's data showing up in the wrong row
+    insurance_year$X.1[5] <- insurance_year$X.1[4]
+    insurance_year$X.2[5] <- insurance_year$X.2[4]
+    insurance_year$X.3[5] <- insurance_year$X.3[4]
+    insurance_year <- insurance_year[-4,]
+    
+    ## Fixing column names
+    names(insurance_year)[2] <- "Totals"
+    names(insurance_year)[3] <- "Insured"
+    names(insurance_year)[4] <- "Uninsured"
+    insurance_year <- insurance_year[-1:-2, ]
+    
+    ## Getting rid of commas in the values
+    insurance_year$Totals <- sub(',','', insurance_year$Totals)
+    insurance_year$Insured <- sub(',','', insurance_year$Insured)
+    insurance_year$Uninsured <- sub(',','', insurance_year$Uninsured)
+    
+    ## Converting values to integer type so they can be divided
+    insurance_year$Totals <- as.integer(insurance_year$Totals)
+    insurance_year$Uninsured <- as.integer(insurance_year$Uninsured)
+    
+    ## Calculating the uninsured rate
+    insurance_year$uninsured_rate <- round(insurance_year$Uninsured / insurance_year$Totals, digits = 3)
+    insurance_year$uninsured_rate <- insurance_year$uninsured_rate *100
+    
+    ## Converting state abbreviations to state names
+    insurance_year$state <- state.name[match(insurance_year$X,state.abb)]
+    
+    ## Adding the year values
+    insurance_year$year <- year
+    
+    ## Adding the stateyear column
+    insurance_year$stateyear <- paste(insurance_year$state,insurance_year$year, sep = "")
+    
+    ## Creating the subset of the insurance dataset for this year to merge with the rest of the insurance data
+    insurance_year_val <- insurance_year
+    insurance_year_val[1:4] <- NULL
+    insurance_year_val[2:3] <- NULL
+    
+    ## Merging this year's data with the rest of the insurance data
+    insurance_val <- rbind(insurance_val, insurance_year_val)
+
+}
+```
+
+```{r}
+## Merging Uninsured Rate into the master dataset
+data_total <- merge(x = data_total, y = insurance_val, by = "stateyear", all.x = TRUE)
+```
+
+
+## Compiling the Education Dataset
+
+Source: https://www.census.gov/cps/data/cpstablecreator.html
+
+- Years: 2003-2018. I used the redesigned income questions for the 2014 file. I used the Census 2010 weights for the 2010 file.
+- Persons - All
+- Separate Table For Each Year
+- Row Variables: State
+- Column Variables: Educational Attainment
+
+(Saved down as separate csv files for each year, but otherwise untouched)
+
+
+```{r}
+## Creating the empty dataframe we'll append the values to in the below loop
+education_val <- data.frame(matrix(ncol = 3, nrow = 1))
+x <- c("no_hsd_rate", "bach_plus_rate", "stateyear")
+colnames(education_val) <- x
+
+## Looping through the files for each year
+for (year in seq(2003,2018))
+{
+    ## Creating the filename
+    filename = paste("Education_", year, ".csv", sep = "", collapse = NULL)
+    
+    ## Reading in the csv file
+    if (year == 2014) {
+        education_year <- read.csv(file = filename, header = TRUE, sep = ",", skip = 6, stringsAsFactors = FALSE)
+    } else {
+        education_year <- read.csv(file = filename, header = TRUE, sep = ",", skip = 4, stringsAsFactors = FALSE)
+    }
+    
+    ## Getting rid of unneccessary columns
+    if (year == 2014) {
+        education_year[8:26] <- NULL
+    } else {
+        education_year[8:22] <- NULL
+    }
+    
+    
+    ## Fixing the issue with Alabama's data showing up in the wrong row
+    education_year$X.1[5] <- education_year$X.1[4]
+    education_year$X.2[5] <- education_year$X.2[4]
+    education_year$X.3[5] <- education_year$X.3[4]
+    education_year$X.4[5] <- education_year$X.4[4]
+    education_year$X.5[5] <- education_year$X.5[4]
+    education_year$X.6[5] <- education_year$X.6[4]
+    education_year <- education_year[-4,]
+    
+    ## Fixing column names
+    names(education_year)[2] <- "Totals"
+    names(education_year)[3] <- "under15"
+    names(education_year)[4] <- "no_hsd"
+    names(education_year)[5] <- "hsd"
+    names(education_year)[6] <- "some_college"
+    names(education_year)[7] <- "bach_plus"
+    education_year <- education_year[-1:-2, ]
+    
+    ## Getting rid of commas in the values
+    education_year$Totals <- sub(',','', education_year$Totals)
+    education_year$under15 <- sub(',','', education_year$under15)
+    education_year$no_hsd <- sub(',','', education_year$no_hsd)
+    education_year$hsd <- sub(',','', education_year$hsd)
+    education_year$some_college <- sub(',','', education_year$some_college)
+    education_year$bach_plus <- sub(',','', education_year$bach_plus)
+    
+    ## Converting values to integer type so they can be divided
+    education_year$Totals <- as.integer(education_year$Totals)
+    education_year$no_hsd <- as.integer(education_year$no_hsd)
+    education_year$bach_plus <- as.integer(education_year$bach_plus)
+    
+    ## Calculating the rates
+    education_year$no_hsd_rate <- round(education_year$no_hsd / education_year$Totals, digits = 3)
+    education_year$no_hsd_rate <- education_year$no_hsd_rate *100
+    
+    education_year$bach_plus_rate <- round(education_year$bach_plus / education_year$Totals, digits = 3)
+    education_year$bach_plus_rate <- education_year$bach_plus_rate *100
+    
+    ## Converting state abbreviations to state names
+    education_year$state <- state.name[match(education_year$X,state.abb)]
+    
+    ## Adding the year values
+    education_year$year <- year
+    
+    ## Adding the stateyear column
+    education_year$stateyear <- paste(education_year$state,education_year$year, sep = "")
+    
+    ## Creating the subset of the education dataset for the merge
+    education_year_val <- education_year
+    education_year_val[1:7] <- NULL
+    education_year_val[3:4] <- NULL
+    
+    ## Merging this year's data with the rest of the education data
+    education_val <- rbind(education_val, education_year_val)
+
+}
+```
+
+```{r}
+## Merging Education Rates into the master dataset
+data_total <- merge(x = data_total, y = education_val, by = "stateyear", all.x = TRUE)
+```
+
+
+## Compiling the GDP Per Capita Dataset
+
+GDP Data:
+
+Source: https://research.stlouisfed.org/
+
+-Total Gross Domestic Product for each state
+-Millions of Dollars, Annual, Not Seasonally Adjusted, Vintage: 2019-05-01
+-1997-2018
+
+(Saved down as csv but otherwise untouched)
+
+
+```{r}
+##### GDP Data ####
+
+## Reading in the data
+gdp <- read.csv(file = "GDP.csv", header = FALSE, sep = ",", skip = 0, stringsAsFactors = FALSE)
+
+## Changing the headers to just have the first 2 characters - this is the state abbreviation
+gdp[1,]<- substr(gdp[1,], 1,2)
+
+## Changing the year values to just the 4-digit year
+gdp$V1 <- substr(gdp$V1, 1,4)
+
+## Transposing so the state names are easier to work with
+gdp <- data.frame(t(gdp))
+
+## Creating a column for full state name
+gdp$state <- state.name[match(gdp$X1,state.abb)]
+
+## Making the row names the state names
+gdp$state[1] <- "-"
+row.names(gdp) <- as.character(unlist(gdp[24]))
+gdp$state <- NULL
+
+## Making the column names the year numbers
+colnames(gdp) <- as.character(unlist(gdp[1,]))
+gdp <- gdp[-1, ]
+
+## Getting rid of the abbreviations column
+gdp$ob <- NULL
+
+## Converting it into a form that is merge-able with the master dataset
+gdp_val <- data.frame(matrix(0, ncol = 2, nrow = 0))
+colnames(gdp_val) <- c("stateyear", "gdp")
+
+for (row in 1:nrow(gdp))
+{
+    for (col in 1:ncol(gdp))
+    {
+        data <- data.frame(matrix(0, ncol = 2, nrow = 1))
+        colnames(data) <- c("stateyear", "gdp")
+        data$stateyear <- paste(rownames(gdp)[row],colnames(gdp)[col], sep = "")
+        data$gdp <- gdp[row,col]
+        gdp_val <- rbind(gdp_val, data)
+    }
+}
+
+## Converting gdp values to numeric type
+gdp_val$gdp <- as.numeric(as.character(gdp_val$gdp))
+```
+
+```{r}
+## Merging GDP into the master dataset
+data_total <- merge(x = data_total, y = gdp_val, by = "stateyear", all.x = TRUE)
+```
+
+```{r}
+#### Total Population Data ####
+
+## Since the poverty dataset includes total population data by state, I'm re-using the code from that section below with a few tweaks to grab the population figures.
+
+## Reading in the csv file
+poverty <- read.csv(file = "Poverty.csv", header = TRUE, sep = ",", skip = 3, stringsAsFactors = FALSE)
+
+## Fixing the column names
+colnames(poverty) <- as.character(unlist(poverty[1,]))
+poverty <- poverty[-1, ]
+
+## Fixing the row index
+rownames(poverty) <- NULL
+
+## Creating the year column and filling it in appropriately
+poverty$year <- ""
+poverty$year[1:51] <- 2018
+poverty$year[54:104] <- 2017
+poverty$year[160:210] <- 2016
+poverty$year[213:263] <- 2015
+poverty$year[266:316] <- 2014
+poverty$year[319:369] <- 2013
+poverty$year[425:475] <- 2012
+poverty$year[478:528] <- 2011
+poverty$year[531:581] <- 2010
+poverty$year[584:634] <- 2009
+poverty$year[637:687] <- 2008
+poverty$year[690:740] <- 2007
+poverty$year[743:793] <- 2006
+poverty$year[796:846] <- 2005
+poverty$year[849:899] <- 2004
+poverty$year[902:952] <- 2003
+poverty$year[955:1005] <- 2002
+poverty$year[1008:1058] <- 2001
+poverty$year[1061:1111] <- 2000
+poverty$year[1114:1164] <- 1999
+poverty$year[1167:1217] <- 1998
+poverty$year[1220:1270] <- 1997
+poverty$year[1273:1323] <- 1996
+poverty$year[1326:1376] <- 1995
+poverty$year[1379:1429] <- 1994
+poverty$year[1432:1482] <- 1993
+poverty$year[1485:1535] <- 1992
+
+## Deleting unnecessary lines, duplicate year values, and values for years before 1992. 
+## Referenced the footnotes at the below link in order to make decisions on the duplicates for 2017 and 2013. Used the values
+## consistent with the decisions from the Median HH Income variable above for these years.
+## https://www.census.gov/topics/income-poverty/poverty/guidance/poverty-footnotes/cps-historic-footnotes.html
+poverty <- poverty[poverty$year != "",]
+
+## Creating the stateyear column
+poverty$stateyear <- paste(poverty$STATE,poverty$year, sep = "")
+
+## Getting rid of commas in the total population values
+poverty$Total <- sub(',','', poverty$Total)
+
+## Converting total population values to numeric type
+poverty$Total <- as.numeric(as.character(poverty$Total))
+
+## Creating the subset of the poverty dataset to merge into the master dataset
+population_val <- poverty
+population_val$STATE <- NULL
+population_val$Number <- NULL
+population_val$year <- NULL
+population_val[2:4] <- NULL
+
+## Changing the column name for total population
+names(population_val)[1] <- "total_population"
+```
+
+```{r}
+## Merging Population into the master dataset
+data_total <- merge(x = data_total, y = population_val, by = "stateyear", all.x = TRUE)
+```
+
+```{r}
+## Adding in column for GDP Per Capita
+data_total$gdp_pc <- (data_total$gdp * 1000000) / (data_total$total_population *1000)
+```
+
+
+## Compiling the Unemployment Rate Dataset
+
+Unemployment Data:
+
+Source: https://www.bls.gov/data/#unemployment
+
+- Unemployment
+- Local Area Unemployment Statistics (LAUS)
+- One-Screen Data Search
+- View State(s) by area type or view data for Census Regions or Divisions
+- Select an Area Type: Statewide
+- Select One or More States or Reg/Div: (Select All)
+- Select One or More Areas: (Select All)
+- Not Seasonally Adjusted
+- Add to Selection
+- Get Data
+- More Formatting Options
+- Specify Year Range: From 1992 to 2019
+- Select View of the Data: Multi-series Table
+- Select One Time Period: Annual Data
+- Download: .xlsx
+
+(Saved down as csv but otherwise untouched)
+
+
+State Codes:
+
+Source: https://www2.census.gov/programs-surveys/popest/geographies/2016/state-geocodes-v2016.xls
+
+(Saved down as csv but otherwise untouched)
+
+
+```{r}
+## Reading in the csv file
+unemployment <- read.csv(file = "Unemployment.csv", header = TRUE, sep = ",", skip = 3, stringsAsFactors = FALSE)
+
+## Getting rid of the 2019 column, as it's incomplete
+unemployment[29] <- NULL 
+
+## Fixing the year numbers in the column names
+colnames(unemployment) <- substr(colnames(unemployment), 8,11)
+
+## Pulling out the state code
+unemployment$state_code <- substr(unemployment$ID, 6,7)
+
+## Reading in the state code csv file
+state_codes <- read.csv(file = "StateCodes.csv", header = TRUE, sep = ",", skip = 5, stringsAsFactors = FALSE)
+
+## Getting rid of unneccessary columns
+state_codes[1:2] <- NULL
+
+## Renaming the first column for an easy merge
+names(state_codes)[1] <- "state_code"
+
+## Adding leading zeros to single digit codes for merge purposes
+state_codes$state_code <- formatC(state_codes$state_code, width = 2, format = "d", flag = "0")
+
+## Merging in the state names
+unemployment <- merge(x = unemployment, y = state_codes, by = "state_code", all.x = TRUE)
+
+## Deleting all the rows with unnecessary data
+unemployment <- unemployment %>% dplyr::filter(row_number() %% 4 == 1) 
+
+## Making the state names the row names
+row.names(unemployment) <- as.character(unlist(unemployment$Name))
+
+## Getting rid of unnecessary columns
+unemployment$state_code <- NULL
+unemployment$ID <- NULL
+unemployment$Name <- NULL
+
+## Converting it into a form that is merge-able with the master dataset
+unemployment_val <- data.frame(matrix(0, ncol = 2, nrow = 0))
+colnames(unemployment_val) <- c("stateyear", "unemployment")
+
+for (row in 1:nrow(unemployment))
+{
+    for (col in 1:ncol(unemployment))
+    {
+        data <- data.frame(matrix(0, ncol = 2, nrow = 1))
+        colnames(data) <- c("stateyear", "unemployment")
+        data$stateyear <- paste(rownames(unemployment)[row],colnames(unemployment)[col], sep = "")
+        data$unemployment <- unemployment[row,col]
+        unemployment_val <- rbind(unemployment_val, data)
+    }
+}
+```
+
+```{r}
+## Merging Unemployment into the master dataset
+data_total <- merge(x = data_total, y = unemployment_val, by = "stateyear", all.x = TRUE)
+```
+
+
+## Additional Variables for Analysis Purposes:
+
+```{r}
+## Adding "Partisanship Score", which is -1 for Democrats, 0 for Split Govt, 1 for Republicans. Just using this variable for looking at the cumulative partisanship of individual states over the course of the timeframe in the dataset.
+data_total$partisanship_score[data_total$total_gov == "D"] <- -1
+data_total$partisanship_score[data_total$total_gov == "Split"] <- 0
+data_total$partisanship_score[data_total$total_gov == "R"] <- 1
+```
+
+
+```{r}
+## Export completed dataset to csv
+write.csv(data_total,'PartyControlStateGovt.csv')
+```
+
+
+## Data Exploration:
+
+```{r}
+## Metric Summaries
+summary(data_total$median_hh_income)
+summary(data_total$poverty_rate)
+summary(data_total$uninsured_rate)
+summary(data_total$no_hsd_rate)
+summary(data_total$bach_plus_rate)
+summary(data_total$gdp_pc)
+summary(data_total$unemployment)
+```
+
+
+
+
+
