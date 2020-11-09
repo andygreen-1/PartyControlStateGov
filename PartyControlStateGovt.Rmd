@@ -27,8 +27,8 @@ library(tidyverse)
 library(rvest)
 library(dplyr)
 
-## Set working directory
-setwd("~/Documents/PartyControlStateGovt")
+## Clear objects from prior session
+rm(list = ls(all = TRUE))
 ```
 
 
@@ -41,7 +41,7 @@ Source: I scraped the data from each state's invidividual "Party Control of Stat
 ```{r}
 #### Looping through each of the states on Ballotpedia ####
 
-## Setting up the list of state names for looping. Nebraska has to be removed because they have a unicameral legislature, and thus their table is formatted differently on the web page. I'm collecting the data for them separately outside of the loop. The other state names are being altered to add an underscore such that the URL's will function correctly. These will be removed  later.
+## Setting up the list of state names for looping. Nebraska has to be removed because they have a unicameral legislature, and thus their table is formatted differently on the web page. I'm collecting the data for them separately outside of the loop. The other state names are being altered to add an underscore such that the URL's will function correctly. These will be removed later.
 state.name2 <- as.list(state.name)
 state.name2[27] <- NULL
 state.name2[28] <- "New_Hampshire"
@@ -101,7 +101,7 @@ for (state in state.name2)
     ## Getting rid of the underscores in the state names
     data$state <- sub('_',' ', data$state)
         
-    ## Creating a variable that concatenates state and year (will be needed for lookups later)
+    ## Creating a variable that concatenates state and year
     data$stateyear <- paste(data$state,data$year, sep = "")
         
     ## Summarizing the total government control
@@ -200,7 +200,7 @@ data$year_beg[data$year_end > 50] <- 19
 data$year_beg[data$year_end < 50] <- 20
 data$year <- paste(data$year_beg, data$year_end, sep = "")
     
-## Creating a variable that concatenates state and year (will be needed for lookups later)
+## Creating a variable that concatenates state and year
 data$stateyear <- paste(data$state,data$year, sep = "")
 
 ## Adding the columns for total government control and detailed government control
@@ -226,7 +226,7 @@ Source: https://www2.census.gov/programs-surveys/cps/tables/time-series/historic
 
 ```{r}
 ## Reading in the csv file
-medhh <- read.csv(file = "MedianHHIncome.csv", header = TRUE, sep = ",", skip = 3, stringsAsFactors = FALSE)
+medhh <- read.csv(file = "Source Data/MedianHHIncome.csv", header = TRUE, sep = ",", skip = 3, stringsAsFactors = FALSE)
 
 ## Getting rid of the 2018 dollars data - I'm only going to analyze it in terms of current dollars
 medhh <- medhh[1:54,]
@@ -249,36 +249,19 @@ medhh[1,] <- substr(medhh[1,], 1,4)
 colnames(medhh) <- as.character(unlist(medhh[1,]))
 medhh <- medhh[-1, ]
 
-## Making the states the row names
-row.names(medhh) <- as.character(unlist(medhh[1]))
-medhh$Stat <- NULL
-
-## Converting it into a format that is merge-able with the master dataset
-medhh_val <- data.frame(matrix(0, ncol = 2, nrow = 0))
-colnames(medhh_val) <- c("stateyear", "median_hh_income")
-
-for (row in 1:nrow(medhh))
-{
-    for (col in 1:ncol(medhh))
-    {
-        data3 <- data.frame(matrix(0, ncol = 2, nrow = 1))
-        colnames(data3) <- c("stateyear", "median_hh_income")
-        data3$stateyear <- paste(rownames(medhh)[row],colnames(medhh)[col], sep = "")
-        data3$median_hh_income <- medhh[row,col]
-        medhh_val <- rbind(medhh_val, data3)
-    }
-}
+## Converting from wide to long
+medhh <- gather(medhh, year, median_hh_income, '2018':'1984')
 
 ## Getting rid of commas in the median hh income values
-medhh_val$median_hh_income <- sub(',','', medhh_val$median_hh_income)
+medhh$median_hh_income <- sub(',','', medhh$median_hh_income)
 
 ## Converting median hh income values to numeric type
-medhh_val$median_hh_income <- as.numeric(as.character(medhh_val$median_hh_income))
+medhh$median_hh_income <- as.numeric(as.character(medhh$median_hh_income))
 ```
 
 ```{r}
 ## Merging median household income into the master dataset
-data_total <- merge(x = data_total, y = medhh_val, by = "stateyear", all.x = TRUE)
+data_total <- merge(x = data_total, y = medhh, by.x=c("state","year"), by.y=c("Stat","year"), all.x = TRUE)
 ```
 
 
@@ -291,7 +274,7 @@ Source: https://www2.census.gov/programs-surveys/cps/tables/time-series/historic
 
 ```{r}
 ## Reading in the csv file
-poverty <- read.csv(file = "Poverty.csv", header = TRUE, sep = ",", skip = 3, stringsAsFactors = FALSE)
+poverty <- read.csv(file = "Source Data/Poverty.csv", header = TRUE, sep = ",", skip = 3, stringsAsFactors = FALSE)
 
 ## Fixing the column names
 colnames(poverty) <- as.character(unlist(poverty[1,]))
@@ -337,20 +320,26 @@ poverty <- poverty[poverty$year != "",]
 ## Creating the stateyear column
 poverty$stateyear <- paste(poverty$STATE,poverty$year, sep = "")
 
+## Getting rid of commas in relevant columns
+poverty$Total <- sub(',','', poverty$Total)
+poverty$Number <- sub(',','', poverty$Number)
+
+## Converting relevant columns to numeric
+poverty$Total <- as.numeric(as.character(poverty$Total))
+poverty$Number <- as.numeric(as.character(poverty$Number))
+
+## Calculating the poverty rate - doing this rather than just using the "Percent" column due to rounding issues that emerge later on
+poverty$poverty_rate <- (poverty$Number / poverty$Total) *100
+
 ## Creating the subset of the poverty dataset to merge into the master dataset
 poverty_val <- poverty
 poverty_val$STATE <- NULL
 poverty_val$Total <- NULL
 poverty_val$Number <- NULL
+poverty_val$Percent <- NULL
 poverty_val$year <- NULL
 poverty_val[1] <- NULL
-poverty_val[2] <- NULL
-
-## Changing the column name for the poverty rate
-names(poverty_val)[1] <- "poverty_rate"
-
-## Converting poverty rate values to numeric type
-poverty_val$poverty_rate <- as.numeric(as.character(poverty_val$poverty_rate))
+poverty_val[1] <- NULL
 ```
 
 ```{r}
@@ -377,12 +366,24 @@ Sources:
 
 (Saved down as separate csv files for each year, but otherwise untouched)
 
+3. (2018): https://data.census.gov/mdat/#/
+
+- Select Dataset: CPS Annual Social and Economic (March) Supplement
+- Select Vintage: MAR 2019
+- Select Variable: COV
+- Select Geographies: (All states)
+- View Table
+- Download
+- Download table view (.csv)
+- * Weight, March Supplement - Person
+- Download
+
 
 ```{r}
 ##### 1999 - 2012 #####
 
 ## Reading in the csv file
-insurance <- read.csv(file = "Insurance.csv", header = TRUE, sep = ",", skip = 5, stringsAsFactors = FALSE)
+insurance <- read.csv(file = "Source Data/Insurance.csv", header = TRUE, sep = ",", skip = 5, stringsAsFactors = FALSE)
 
 ## Getting rid of unneccessary columns
 insurance[7:38] <- NULL
@@ -405,18 +406,20 @@ insurance$year <- substr(insurance$X, 0, 4)
 ## Creating the stateyear column
 insurance$stateyear <- paste(insurance$state,insurance$year, sep = "")
 
-## Creating the subset of the insurance dataset to merge with the master dataset
-insurance_val <- insurance
-insurance_val$X <- NULL
-insurance_val$X.1 <- NULL
-insurance_val$Number <- NULL
-insurance_val$SE <- NULL
-insurance_val$SE.1 <- NULL
-insurance_val$state <- NULL
-insurance_val$year <- NULL
+## Getting rid of commas in relevant columns
+insurance$X.1 <- sub(',','', insurance$X.1)
+insurance$Number <- sub(',','', insurance$Number)
 
-## Changing the name of the uninsured column for the merge
-names(insurance_val)[1] <- "uninsured_rate"
+## Converting relevant columns to numeric
+insurance$X.1 <- as.numeric(as.character(insurance$X.1))
+insurance$Number <- as.numeric(as.character(insurance$Number))
+
+## Calculating the uninsured rate - doing this rather than just using the "Percent" column due to rounding issues that emerge later on
+insurance$uninsured_rate <- (insurance$Number / insurance$X.1) *100
+
+## Creating the subset of the insurance dataset to merge with the master dataset
+insurance_val <- insurance %>%
+    select(stateyear,uninsured_rate)
 ```
 
 ```{r}
@@ -426,7 +429,7 @@ names(insurance_val)[1] <- "uninsured_rate"
 for (year in seq(2013,2017))
 {
     ## Creating the filename
-    filename = paste("insurance_", year, ".csv", sep = "", collapse = NULL)
+    filename = paste("Source Data/insurance_", year, ".csv", sep = "", collapse = NULL)
     
     ## Reading in the csv file
     if (year == 2013) {
@@ -460,7 +463,7 @@ for (year in seq(2013,2017))
     insurance_year$Uninsured <- as.integer(insurance_year$Uninsured)
     
     ## Calculating the uninsured rate
-    insurance_year$uninsured_rate <- round(insurance_year$Uninsured / insurance_year$Totals, digits = 3)
+    insurance_year$uninsured_rate <- insurance_year$Uninsured / insurance_year$Totals
     insurance_year$uninsured_rate <- insurance_year$uninsured_rate *100
     
     ## Converting state abbreviations to state names
@@ -481,6 +484,32 @@ for (year in seq(2013,2017))
     insurance_val <- rbind(insurance_val, insurance_year_val)
 
 }
+```
+
+```{r}
+##### 2018 #####
+
+## Reading in the csv file
+insurance_2018 <- read.csv(file = "Source Data/Insurance_2018.csv", header = TRUE, sep = ",", skip = 4, stringsAsFactors = FALSE)
+
+## Dropping unncessary column and renaming all columns; Calculating uninsured rate; Adding year column
+insurance_2018 <- insurance_2018 %>%
+    select(state = Selected.Geographies, Total, insured = Yes, uninsured = No) %>%
+    mutate(uninsured_rate = uninsured / Total) %>%
+    mutate(year = 2018)
+
+## Adding the stateyear column
+insurance_2018$stateyear <- paste(insurance_2018$state,insurance_2018$year, sep = "")
+
+## Converting the rate column to match format of other years
+insurance_2018$uninsured_rate = insurance_2018$uninsured_rate * 100
+
+## Dropping to just the columns that we need
+insurance_2018_val <- insurance_2018 %>%
+    select(uninsured_rate,stateyear)
+
+## Merging this year's data with the rest of the insurance data
+insurance_val <- rbind(insurance_val, insurance_2018_val)
 ```
 
 ```{r}
@@ -512,7 +541,7 @@ colnames(education_val) <- x
 for (year in seq(2003,2018))
 {
     ## Creating the filename
-    filename = paste("Education_", year, ".csv", sep = "", collapse = NULL)
+    filename = paste("Source Data/Education_", year, ".csv", sep = "", collapse = NULL)
     
     ## Reading in the csv file
     if (year == 2014) {
@@ -561,10 +590,10 @@ for (year in seq(2003,2018))
     education_year$bach_plus <- as.integer(education_year$bach_plus)
     
     ## Calculating the rates
-    education_year$no_hsd_rate <- round(education_year$no_hsd / education_year$Totals, digits = 3)
+    education_year$no_hsd_rate <- education_year$no_hsd / education_year$Totals
     education_year$no_hsd_rate <- education_year$no_hsd_rate *100
     
-    education_year$bach_plus_rate <- round(education_year$bach_plus / education_year$Totals, digits = 3)
+    education_year$bach_plus_rate <- education_year$bach_plus / education_year$Totals
     education_year$bach_plus_rate <- education_year$bach_plus_rate *100
     
     ## Converting state abbreviations to state names
@@ -610,7 +639,7 @@ Source: https://research.stlouisfed.org/
 ##### GDP Data ####
 
 ## Reading in the data
-gdp <- read.csv(file = "GDP.csv", header = FALSE, sep = ",", skip = 0, stringsAsFactors = FALSE)
+gdp <- read.csv(file = "Source Data/GDP.csv", header = FALSE, sep = ",", skip = 0, stringsAsFactors = FALSE)
 
 ## Changing the headers to just have the first 2 characters - this is the state abbreviation
 gdp[1,]<- substr(gdp[1,], 1,2)
@@ -625,7 +654,7 @@ gdp <- data.frame(t(gdp))
 gdp$state <- state.name[match(gdp$X1,state.abb)]
 
 ## Making the row names the state names
-gdp$state[1] <- "-"
+gdp$state[1] <- "state"
 row.names(gdp) <- as.character(unlist(gdp[24]))
 gdp$state <- NULL
 
@@ -636,29 +665,19 @@ gdp <- gdp[-1, ]
 ## Getting rid of the abbreviations column
 gdp$ob <- NULL
 
-## Converting it into a form that is merge-able with the master dataset
-gdp_val <- data.frame(matrix(0, ncol = 2, nrow = 0))
-colnames(gdp_val) <- c("stateyear", "gdp")
+## Getting rownames back out to a column
+gdp$state <- rownames(gdp)
 
-for (row in 1:nrow(gdp))
-{
-    for (col in 1:ncol(gdp))
-    {
-        data <- data.frame(matrix(0, ncol = 2, nrow = 1))
-        colnames(data) <- c("stateyear", "gdp")
-        data$stateyear <- paste(rownames(gdp)[row],colnames(gdp)[col], sep = "")
-        data$gdp <- gdp[row,col]
-        gdp_val <- rbind(gdp_val, data)
-    }
-}
+## Wide to long
+gdp <- gather(gdp, year, gdp, '1997':'2018')
 
 ## Converting gdp values to numeric type
-gdp_val$gdp <- as.numeric(as.character(gdp_val$gdp))
+gdp$gdp <- as.numeric(as.character(gdp$gdp))
 ```
 
 ```{r}
 ## Merging GDP into the master dataset
-data_total <- merge(x = data_total, y = gdp_val, by = "stateyear", all.x = TRUE)
+data_total <- merge(x = data_total, y = gdp, by.x=c("state","year"), by.y=c("state","year"), all.x = TRUE)
 ```
 
 ```{r}
@@ -667,7 +686,7 @@ data_total <- merge(x = data_total, y = gdp_val, by = "stateyear", all.x = TRUE)
 ## Since the poverty dataset includes total population data by state, I'm re-using the code from that section below with a few tweaks to grab the population figures.
 
 ## Reading in the csv file
-poverty <- read.csv(file = "Poverty.csv", header = TRUE, sep = ",", skip = 3, stringsAsFactors = FALSE)
+poverty <- read.csv(file = "Source Data/Poverty.csv", header = TRUE, sep = ",", skip = 3, stringsAsFactors = FALSE)
 
 ## Fixing the column names
 colnames(poverty) <- as.character(unlist(poverty[1,]))
@@ -763,6 +782,7 @@ Source: https://www.bls.gov/data/#unemployment
 - Specify Year Range: From 1992 to 2019
 - Select View of the Data: Multi-series Table
 - Select One Time Period: Annual Data
+- Retrieve Data
 - Download: .xlsx
 
 (Saved down as csv but otherwise untouched)
@@ -777,7 +797,7 @@ Source: https://www2.census.gov/programs-surveys/popest/geographies/2016/state-g
 
 ```{r}
 ## Reading in the csv file
-unemployment <- read.csv(file = "Unemployment.csv", header = TRUE, sep = ",", skip = 3, stringsAsFactors = FALSE)
+unemployment <- read.csv(file = "Source Data/Unemployment.csv", header = TRUE, sep = ",", skip = 3, stringsAsFactors = FALSE)
 
 ## Getting rid of the 2019 column, as it's incomplete
 unemployment[29] <- NULL 
@@ -789,7 +809,7 @@ colnames(unemployment) <- substr(colnames(unemployment), 8,11)
 unemployment$state_code <- substr(unemployment$ID, 6,7)
 
 ## Reading in the state code csv file
-state_codes <- read.csv(file = "StateCodes.csv", header = TRUE, sep = ",", skip = 5, stringsAsFactors = FALSE)
+state_codes <- read.csv(file = "Source Data/StateCodes.csv", header = TRUE, sep = ",", skip = 5, stringsAsFactors = FALSE)
 
 ## Getting rid of unneccessary columns
 state_codes[1:2] <- NULL
@@ -804,40 +824,36 @@ state_codes$state_code <- formatC(state_codes$state_code, width = 2, format = "d
 unemployment <- merge(x = unemployment, y = state_codes, by = "state_code", all.x = TRUE)
 
 ## Deleting all the rows with unnecessary data
-unemployment <- unemployment %>% dplyr::filter(row_number() %% 4 == 1) 
+unemployment <- unemployment %>% 
+    filter(str_detect(ID, "004|006")) 
 
-## Making the state names the row names
-row.names(unemployment) <- as.character(unlist(unemployment$Name))
-
-## Getting rid of unnecessary columns
+## Getting rid of unnecessary column
 unemployment$state_code <- NULL
-unemployment$ID <- NULL
-unemployment$Name <- NULL
 
-## Converting it into a form that is merge-able with the master dataset
-unemployment_val <- data.frame(matrix(0, ncol = 2, nrow = 0))
-colnames(unemployment_val) <- c("stateyear", "unemployment")
+## Wide to long (years)
+unemployment <- gather(unemployment, year, value, '1992':'2018')
 
-for (row in 1:nrow(unemployment))
-{
-    for (col in 1:ncol(unemployment))
-    {
-        data <- data.frame(matrix(0, ncol = 2, nrow = 1))
-        colnames(data) <- c("stateyear", "unemployment")
-        data$stateyear <- paste(rownames(unemployment)[row],colnames(unemployment)[col], sep = "")
-        data$unemployment <- unemployment[row,col]
-        unemployment_val <- rbind(unemployment_val, data)
-    }
-}
+## Extracting the last digit of ID column to differentiate metrics
+unemployment$ID <- str_sub(unemployment$ID,-2,-1)
+
+## Long to wide (Metrics)
+unemployment <- spread(unemployment, ID, value)
+
+## Calculating the unemployment rate
+unemployment$unemployment <- (unemployment$`04` / unemployment$`06`) *100
+
+## Grabbing just relevant columns for merge
+unemployment <- unemployment %>%
+    select(Name, year, unemployment)
 ```
 
 ```{r}
 ## Merging Unemployment into the master dataset
-data_total <- merge(x = data_total, y = unemployment_val, by = "stateyear", all.x = TRUE)
+data_total <- merge(x = data_total, y = unemployment, by.x=c("state","year"), by.y=c("Name","year"), all.x = TRUE)
 ```
 
 
-## Additional Variables for Analysis Purposes:
+## Additional Variable for Analysis Purposes:
 
 ```{r}
 ## Adding "Partisanship Score", which is -1 for Democrats, 0 for Split Govt, 1 for Republicans. Just using this variable for looking at the cumulative partisanship of individual states over the course of the timeframe in the dataset.
@@ -849,7 +865,7 @@ data_total$partisanship_score[data_total$total_gov == "R"] <- 1
 
 ```{r}
 ## Export completed dataset to csv
-write.csv(data_total,'PartyControlStateGovt.csv')
+write.csv(data_total,'states_panel_data.csv')
 ```
 
 
@@ -866,7 +882,892 @@ summary(data_total$gdp_pc)
 summary(data_total$unemployment)
 ```
 
+## Building the Total US Dataset (from the same sources as before, unless otherwise noted):
+
+```{r}
+## Creating the base dataframe for the total US data
+state <- "United States"
+year <- seq(1992,2020)
+total_us <- tibble(state,year)
+```
+
+```{r}
+##### Median Household Income #####
+
+## Filtering for just total us
+medhh_total <- medhh %>%
+    filter(Stat == "United States")
+
+## Merging into total us dataframe
+total_us <- merge(x = total_us, y = medhh_total, by.x=c("state","year"), by.y=c("Stat","year"), all.x = TRUE)
+```
+
+```{r}
+##### Poverty Rate #####
+
+## Copying the poverty table
+poverty_total <- poverty
+
+## Getting rid of standard error columns
+poverty_total[4] <- NULL
+poverty_total[5] <- NULL
+
+## Getting rid of commas and converting to numeric
+poverty_total$Number <- sub(',','', poverty_total$Number)
+poverty_total$Number <- as.numeric(as.character(poverty_total$Number))
+
+## Calculating aggregated figures by year
+poverty_total <- poverty_total %>%
+    group_by(year)%>%
+    summarise(total_pop = sum(Total),number_poverty = sum(Number)) %>%
+    mutate(poverty_rate = ((number_poverty / total_pop) * 100)) %>%
+    select(year, poverty_rate, total_pop)
+
+## Adding in column for total us
+poverty_total$state <- "United States"
+
+## Merging into total us dataframe
+total_us <- merge(x = total_us, y = poverty_total, by.x=c("state","year"), by.y=c("state","year"), all.x = TRUE)
+```
+
+```{r}
+##### Uninsured Rate #####
+
+## Reading in the csv file for 1999-2012
+insurance_1 <- read.csv(file = "Source Data/Insurance.csv", header = TRUE, sep = ",", skip = 5, stringsAsFactors = FALSE)
+
+## Narrowing to just rows for total us
+insurance_1 <- insurance_1[2:15,]
+
+## Narrowing to just relevant columns
+insurance_1 <-insurance_1 %>%
+    select(year = X, total_pop = X.1, number_uninsured = Number)
+
+## Getting rid of footnotes in year column
+insurance_1$year <- substr(insurance_1$year, 0, 4)
+
+## Getting rid of commas in relevant columns
+insurance_1$total_pop <- sub(',','', insurance_1$total_pop)
+insurance_1$number_uninsured <- sub(',','', insurance_1$number_uninsured)
+
+## Converting relevant columns to numeric
+insurance_1$total_pop <- as.numeric(as.character(insurance_1$total_pop))
+insurance_1$number_uninsured <- as.numeric(as.character(insurance_1$number_uninsured))
+
+## Calculating uninsured rate and getting rid of unnecessary columns
+insurance_1 <- insurance_1 %>%
+    mutate(uninsured_rate = (number_uninsured / total_pop) *100) %>%
+    select(year, uninsured_rate)
+
+## Looping through the files for each year 2013-2017
+for (year in seq(2013,2017))
+{
+    ## Creating the filename
+    filename = paste("Source Data/insurance_", year, ".csv", sep = "", collapse = NULL)
+    
+    ## Reading in the csv file
+    if (year == 2013) {
+        insurance_year <- read.csv(file = filename, header = TRUE, sep = ",", skip = 6, stringsAsFactors = FALSE)
+    } else {
+        insurance_year <- read.csv(file = filename, header = TRUE, sep = ",", skip = 4, stringsAsFactors = FALSE)
+    }
+    
+    ## Getting rid of unneccessary columns
+    insurance_year[5:26] <- NULL
+    
+    ## Fixing column names
+    names(insurance_year)[2] <- "Totals"
+    names(insurance_year)[3] <- "Insured"
+    names(insurance_year)[4] <- "Uninsured"
+    insurance_year <- insurance_year[-1:-2, ]
+    
+    ## Filtering for just total us
+    insurance_year <- insurance_year %>%
+        filter(X == 'Totals')
+    
+    ## Getting rid of commas in the values
+    insurance_year$Totals <- sub(',','', insurance_year$Totals)
+    insurance_year$Insured <- sub(',','', insurance_year$Insured)
+    insurance_year$Uninsured <- sub(',','', insurance_year$Uninsured)
+    
+    ## Converting values to integer type so they can be divided
+    insurance_year$Totals <- as.integer(insurance_year$Totals)
+    insurance_year$Uninsured <- as.integer(insurance_year$Uninsured)
+    
+    ## Calculating the uninsured rate
+    insurance_year$uninsured_rate <- insurance_year$Uninsured / insurance_year$Totals
+    insurance_year$uninsured_rate <- insurance_year$uninsured_rate *100
+    
+    ## Adding the year values
+    insurance_year$year <- year
+    
+    ## Narrowing to columns for merge
+    insurance_year <- insurance_year %>%
+        select(year, uninsured_rate)
+    
+    ## Merging this year's data with the rest of the insurance data
+    insurance_1 <- rbind(insurance_1, insurance_year)
+
+}
+
+## Filtering the insurance_2018 object for total us
+insurance_2 <- insurance_2018[1,]
+
+## Grabbing just the columns we need
+insurance_2 <- insurance_2 %>%
+    select(year, uninsured_rate)
+
+## Merging with the rest of the insurance data
+insurance_1 <- rbind(insurance_1, insurance_2)
+
+## Merging into total us dataframe
+total_us <- merge(x = total_us, y = insurance_1, by.x="year", by.y="year", all.x = TRUE)
+```
+
+```{r}
+##### Education Data #####
+
+## Creating the empty dataframe we'll append the values to in the below loop
+education_total <- data.frame(matrix(ncol = 3, nrow = 0))
+x <- c("no_hsd_rate", "bach_plus_rate", "year")
+colnames(education_total) <- x
+
+## Looping through the files for each year
+for (year in seq(2003,2018))
+{
+    ## Creating the filename
+    filename = paste("Source Data/Education_", year, ".csv", sep = "", collapse = NULL)
+    
+    ## Reading in the csv file
+    if (year == 2014) {
+        education_year <- read.csv(file = filename, header = TRUE, sep = ",", skip = 6, stringsAsFactors = FALSE)
+    } else {
+        education_year <- read.csv(file = filename, header = TRUE, sep = ",", skip = 4, stringsAsFactors = FALSE)
+    }
+    
+    ## Getting rid of unneccessary columns
+    if (year == 2014) {
+        education_year[8:26] <- NULL
+    } else {
+        education_year[8:22] <- NULL
+    }
+    
+    ## Fixing column names
+    names(education_year)[2] <- "Totals"
+    names(education_year)[3] <- "under15"
+    names(education_year)[4] <- "no_hsd"
+    names(education_year)[5] <- "hsd"
+    names(education_year)[6] <- "some_college"
+    names(education_year)[7] <- "bach_plus"
+    
+    ## Filtering for just total us
+    education_year <- education_year %>%
+        filter(X == "Totals")
+    
+    ## Getting rid of commas in the values
+    education_year$Totals <- sub(',','', education_year$Totals)
+    education_year$under15 <- sub(',','', education_year$under15)
+    education_year$no_hsd <- sub(',','', education_year$no_hsd)
+    education_year$hsd <- sub(',','', education_year$hsd)
+    education_year$some_college <- sub(',','', education_year$some_college)
+    education_year$bach_plus <- sub(',','', education_year$bach_plus)
+    
+    ## Converting values to integer type so they can be divided
+    education_year$Totals <- as.integer(education_year$Totals)
+    education_year$no_hsd <- as.integer(education_year$no_hsd)
+    education_year$bach_plus <- as.integer(education_year$bach_plus)
+    
+    ## Calculating the rates
+    education_year$no_hsd_rate <- education_year$no_hsd / education_year$Totals
+    education_year$no_hsd_rate <- education_year$no_hsd_rate *100
+    
+    education_year$bach_plus_rate <- education_year$bach_plus / education_year$Totals
+    education_year$bach_plus_rate <- education_year$bach_plus_rate *100
+    
+    ## Adding the year values
+    education_year$year <- year
+    
+    ## Selecting just the columns for the merge
+    education_year <- education_year %>%
+        select(no_hsd_rate, bach_plus_rate, year)
+    
+    ## Merging this year's data with the rest of the education data
+    education_total <- rbind(education_total, education_year)
+
+}
+
+## Merging into total us dataframe
+total_us <- merge(x = total_us, y = education_total, by.x="year", by.y="year", all.x = TRUE)
+```
+
+```{r}
+##### GDP Data #####
+
+## Creating a copy of the GDP table
+gdp_total <- gdp
+
+## Aggregating for total us
+gdp_total <- gdp_total %>%
+    group_by(year)%>%
+    summarise(gdp = sum(gdp))
+
+## Merging into total us dataframe
+#total_us <- merge(x = total_us, y = gdp_total, by.x="year", by.y="year", all.x = TRUE)
+```
+
+```{r}
+## Adding in column for GDP Per Capita
+#total_us$gdp_pc <- (total_us$gdp * 1000000) / (total_us$total_pop *1000)
+```
+
+The above code aggregates the individual state GDP figures for each year, and then divides it by the aggregated US population figures for each year to get to a measure of GDP per capita. It ends up shaking out to be pretty accurate, but just to be safe, I'm going to instead pull in exact figures from the World Bank, as they're easily available.
+
+Source: https://data.worldbank.org/indicator/NY.GDP.PCAP.CD?locations=US
+
+```{r}
+##### GDP Data #####
+
+## Reading in the csv file
+gdp_total <- read.csv(file = "Source Data/GDP_Total.csv", header = TRUE, sep = ",", skip = 4, stringsAsFactors = FALSE)
+
+## Filtering for just us
+gdp_total <- gdp_total %>%
+    filter(Country.Name == "United States" )
+
+## Going wide to long
+gdp_total <- gather(gdp_total, year, gdp_pc, X1960:X2019)
+
+## Fixing year and selecting relevant columns for merge
+gdp_total <- gdp_total %>%
+    mutate(year = substring(year, 2)) %>%
+    select(year, gdp_pc)
+
+## Merging into total us dataframe
+total_us <- merge(x = total_us, y = gdp_total, by.x="year", by.y="year", all.x = TRUE)
+```
+
+I originally thought the unemployment data file only included percentages, which couldn't be aggregated up to the national level (I now know that it does actually have this info, as I'm now using it after going back to address rounding concerns). As such, I pulled in national-level unemployment data.
+
+Source: https://www.bls.gov/cps/tables.htm#annual
+
+- CPS Tables
+- Annual Averages
+- Employment Status
+- 1. Employment status of the civilian noninstitutional population, 1940s to date
+
+(Saved down as csv, but otherwise untouched)
+
+```{r}
+##### Unemployment #####
+
+## Read in the csv
+unemploy_total <- read.csv(file = "Source Data/Unemployment_Total.csv", header = TRUE, sep = ",", skip = 5, stringsAsFactors = FALSE)
+
+## Selecting just necessary columns
+unemploy_total <- unemploy_total %>%
+    select(year = Year, unemployment_number = X.5, labor_force = Civilian.labor.force)
+
+## Removing commas and changing to numeric type
+unemploy_total$unemployment_number <- sub(',','', unemploy_total$unemployment_number)
+unemploy_total$labor_force <- sub(',','', unemploy_total$labor_force)
+
+unemploy_total$unemployment_number <- as.numeric(as.character(unemploy_total$unemployment_number))
+unemploy_total$labor_force <- as.numeric(as.character(unemploy_total$labor_force))
+
+## Calculating unemployment rate
+unemploy_total <- unemploy_total %>%
+    mutate(unemployment = (unemployment_number / labor_force)*100)
+
+## Getting rid of empty rows
+unemploy_total <- unemploy_total[-1:-4,]
+unemploy_total <- unemploy_total[-72:-73,]
+
+## Narrowing to just columns for merge
+unemploy_total <- unemploy_total %>%
+    select(year, unemployment)
+
+## Merging into total us dataframe
+total_us <- merge(x = total_us, y = unemploy_total, by.x="year", by.y="year", all.x = TRUE)
+```
+
+```{r}
+## Export completed dataset to csv
+write.csv(total_us,'total_us_panel_data.csv')
+```
 
 
+## Creating the trifectas dataset:
 
+I will be focusing on trifectas during the 20 year timeframe of 1999-2018, as these are the years that I consistently have data for (almost) all metrics. Additionally, I will only be looking at trifectas that run for a minimum of 4 consecutive years.
+
+```{r}
+## Filtering out the years that I'm not focusing on
+data_total <- data_total %>%
+    filter(year >= 1999 & year <= 2018)
+```
+
+```{r}
+## Creating the empty dataframe for the trifectas data
+trifectas <- data.frame(matrix(ncol = 4, nrow = 0))
+columns <- c("state", "start_year", "end_year", "party")
+colnames(trifectas) <- columns
+```
+
+```{r}
+## Adding the trifecta data
+trifectas <- trifectas %>% 
+    add_row(state = "Alabama", start_year = "1999", end_year = "2002", party = "D") %>%
+    add_row(state = "Alabama", start_year = "2011", end_year = "2018", party = "R") %>%
+    add_row(state = "Alaska", start_year = "2003", end_year = "2006", party = "R") %>%
+    add_row(state = "Arizona", start_year = "2009", end_year = "2018", party = "R") %>%
+    add_row(state = "Arkansas", start_year = "2007", end_year = "2012", party = "D") %>%
+    add_row(state = "Arkansas", start_year = "2015", end_year = "2018", party = "R") %>%
+    add_row(state = "California", start_year = "1999", end_year = "2003", party = "D") %>%
+    add_row(state = "California", start_year = "2011", end_year = "2018", party = "D") %>%
+    add_row(state = "Colorado", start_year = "2007", end_year = "2010", party = "D") %>%
+    add_row(state = "Connecticut", start_year = "2011", end_year = "2018", party = "D") %>%
+    add_row(state = "Delaware", start_year = "2009", end_year = "2018", party = "D") %>%
+    add_row(state = "Florida", start_year = "1999", end_year = "2018", party = "R") %>%
+    add_row(state = "Georgia", start_year = "1999", end_year = "2002", party = "D") %>%
+    add_row(state = "Georgia", start_year = "2005", end_year = "2018", party = "R") %>%
+    add_row(state = "Hawaii", start_year = "1999", end_year = "2002", party = "D") %>%
+    add_row(state = "Hawaii", start_year = "2011", end_year = "2018", party = "D") %>%
+    add_row(state = "Idaho", start_year = "1999", end_year = "2018", party = "R") %>%
+    add_row(state = "Illinois", start_year = "2003", end_year = "2014", party = "D") %>%
+    add_row(state = "Indiana", start_year = "2011", end_year = "2018", party = "R") %>%
+    add_row(state = "Iowa", start_year = "2007", end_year = "2010", party = "D") %>%
+    add_row(state = "Kansas", start_year = "1999", end_year = "2002", party = "R") %>%
+    add_row(state = "Kansas", start_year = "2011", end_year = "2018", party = "R") %>%
+    add_row(state = "Louisiana", start_year = "2004", end_year = "2007", party = "D") %>%
+    add_row(state = "Louisiana", start_year = "2011", end_year = "2015", party = "R") %>%
+    add_row(state = "Maine", start_year = "2003", end_year = "2010", party = "D") %>%
+    add_row(state = "Maryland", start_year = "1999", end_year = "2002", party = "D") %>%
+    add_row(state = "Maryland", start_year = "2007", end_year = "2014", party = "D") %>%
+    add_row(state = "Massachusetts", start_year = "2007", end_year = "2014", party = "D") %>%
+    add_row(state = "Michigan", start_year = "1999", end_year = "2002", party = "R") %>%
+    add_row(state = "Michigan", start_year = "2011", end_year = "2018", party = "R") %>%
+    add_row(state = "Mississippi", start_year = "2000", end_year = "2003", party = "D") %>%
+    add_row(state = "Mississippi", start_year = "2012", end_year = "2018", party = "R") %>%
+    add_row(state = "Missouri", start_year = "2005", end_year = "2008", party = "R") %>%
+    add_row(state = "Montana", start_year = "1999", end_year = "2004", party = "R") %>%
+    add_row(state = "New Hampshire", start_year = "2007", end_year = "2010", party = "D") %>%
+    add_row(state = "New Jersey", start_year = "2004", end_year = "2009", party = "D") %>%
+    add_row(state = "New Mexico", start_year = "2003", end_year = "2010", party = "D") %>%
+    add_row(state = "North Carolina", start_year = "1999", end_year = "2010", party = "D") %>%
+    add_row(state = "North Carolina", start_year = "2013", end_year = "2016", party = "R") %>%
+    add_row(state = "North Dakota", start_year = "1999", end_year = "2018", party = "R") %>%
+    add_row(state = "Ohio", start_year = "1999", end_year = "2006", party = "R") %>%
+    add_row(state = "Ohio", start_year = "2011", end_year = "2018", party = "R") %>%
+    add_row(state = "Oklahoma", start_year = "2011", end_year = "2018", party = "R") %>%
+    add_row(state = "Oregon", start_year = "2007", end_year = "2010", party = "D") %>%
+    add_row(state = "Oregon", start_year = "2013", end_year = "2018", party = "D") %>%
+    add_row(state = "Pennsylvania", start_year = "1999", end_year = "2002", party = "R") %>%
+    add_row(state = "Pennsylvania", start_year = "2011", end_year = "2014", party = "R") %>%
+    add_row(state = "Rhode Island", start_year = "2013", end_year = "2018", party = "D") %>%
+    add_row(state = "South Carolina", start_year = "2003", end_year = "2018", party = "R") %>%
+    add_row(state = "South Dakota", start_year = "1999", end_year = "2018", party = "R") %>%
+    add_row(state = "Tennessee", start_year = "2011", end_year = "2018", party = "R") %>%
+    add_row(state = "Texas", start_year = "2003", end_year = "2018", party = "R") %>%
+    add_row(state = "Utah", start_year = "1999", end_year = "2018", party = "R") %>%
+    add_row(state = "Vermont", start_year = "2011", end_year = "2016", party = "D") %>%
+    add_row(state = "Washington", start_year = "2005", end_year = "2012", party = "D") %>%
+    add_row(state = "West Virginia", start_year = "2001", end_year = "2014", party = "D") %>%
+    add_row(state = "Wisconsin", start_year = "2011", end_year = "2018", party = "R") %>%
+    add_row(state = "Wyoming", start_year = "1999", end_year = "2002", party = "R") %>%
+    add_row(state = "Wyoming", start_year = "2011", end_year = "2018", party = "R")
+```
+
+```{r}
+#### Pulling in the data for Median Household Income
+
+## Median Household Income - State - Start
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","median_hh_income")], 
+                   by.x = c("state","start_year"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(medhh_state_start = median_hh_income)
+
+## Median Household Income - State - End
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","median_hh_income")], 
+                   by.x = c("state","end_year"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(medhh_state_end = median_hh_income)
+
+## Median Household Income - US - Start
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","median_hh_income")], 
+                   by.x = "start_year",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(medhh_us_start = median_hh_income)
+
+## Median Household Income - US - End
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","median_hh_income")], 
+                   by.x = "end_year",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(medhh_us_end = median_hh_income)
+
+## Median Household Income - Calculations
+trifectas$medhh_state_delta_abs <- trifectas$medhh_state_end - trifectas$medhh_state_start
+trifectas$medhh_us_delta_abs <- trifectas$medhh_us_end - trifectas$medhh_us_start
+trifectas$medhh_state_delta_pct <- (trifectas$medhh_state_delta_abs / trifectas$medhh_state_start)*100
+trifectas$medhh_us_delta_pct <- (trifectas$medhh_us_delta_abs / trifectas$medhh_us_start)*100
+trifectas$medhh_performance_abs <- trifectas$medhh_state_delta_abs - trifectas$medhh_us_delta_abs
+trifectas$medhh_performance_pct <- trifectas$medhh_state_delta_pct - trifectas$medhh_us_delta_pct
+```
+
+```{r}
+#### Pulling in the data for Poverty Rate
+
+## Poverty Rate - State - Start
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","poverty_rate")], 
+                   by.x = c("state","start_year"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(poverty_state_start = poverty_rate)
+
+## Poverty Rate - State - End
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","poverty_rate")], 
+                   by.x = c("state","end_year"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(poverty_state_end = poverty_rate)
+
+## Poverty Rate - US - Start
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","poverty_rate")], 
+                   by.x = "start_year",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(poverty_us_start = poverty_rate)
+
+## Poverty Rate - US - End
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","poverty_rate")], 
+                   by.x = "end_year",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(poverty_us_end = poverty_rate)
+
+## Poverty Rate - Calculations
+trifectas$poverty_state_delta_abs <- trifectas$poverty_state_end - trifectas$poverty_state_start
+trifectas$poverty_us_delta_abs <- trifectas$poverty_us_end - trifectas$poverty_us_start
+trifectas$poverty_state_delta_pct <- (trifectas$poverty_state_delta_abs / trifectas$poverty_state_start)*100
+trifectas$poverty_us_delta_pct <- (trifectas$poverty_us_delta_abs / trifectas$poverty_us_start)*100
+trifectas$poverty_performance_abs <- trifectas$poverty_state_delta_abs - trifectas$poverty_us_delta_abs
+trifectas$poverty_performance_pct <- trifectas$poverty_state_delta_pct - trifectas$poverty_us_delta_pct
+```
+
+```{r}
+#### Pulling in the data for Uninsured Rate
+
+## Uninsured Rate - State - Start
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","uninsured_rate")], 
+                   by.x = c("state","start_year"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(uninsured_state_start = uninsured_rate)
+
+## Uninsured Rate - State - End
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","uninsured_rate")], 
+                   by.x = c("state","end_year"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(uninsured_state_end = uninsured_rate)
+
+## Uninsured Rate - US - Start
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","uninsured_rate")], 
+                   by.x = "start_year",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(uninsured_us_start = uninsured_rate)
+
+## Uninsured Rate - US - End
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","uninsured_rate")], 
+                   by.x = "end_year",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(uninsured_us_end = uninsured_rate)
+
+## Uninsured Rate - Calculations
+trifectas$uninsured_state_delta_abs <- trifectas$uninsured_state_end - trifectas$uninsured_state_start
+trifectas$uninsured_us_delta_abs <- trifectas$uninsured_us_end - trifectas$uninsured_us_start
+trifectas$uninsured_state_delta_pct <- (trifectas$uninsured_state_delta_abs / trifectas$uninsured_state_start)*100
+trifectas$uninsured_us_delta_pct <- (trifectas$uninsured_us_delta_abs / trifectas$uninsured_us_start)*100
+trifectas$uninsured_performance_abs <- trifectas$uninsured_state_delta_abs - trifectas$uninsured_us_delta_abs
+trifectas$uninsured_performance_pct <- trifectas$uninsured_state_delta_pct - trifectas$uninsured_us_delta_pct
+```
+
+Since we're missing data for 1999-2002 for the education metrics, I'll need to handle the calcs a bit differently for those. Any trifecta that starts before 2003 and extends to at least 2006 will use 2003 as the start year in place of the true start year (this will provide for a min. of 4 years of data). Any trifecta that starts before 2003 and ends before 2006 will be excluded from these two metrics altogether.
+
+```{r}
+## Adding the extra start_year column
+trifectas$start_year_education <- trifectas$start_year
+trifectas$start_year_education[trifectas$start_year < 2003 & trifectas$end_year>= 2006] <- 2003
+trifectas$start_year_education[trifectas$start_year < 2003 & trifectas$end_year < 2006] <- NA
+
+## Adding the extra end_year column
+trifectas$end_year_education <- trifectas$end_year
+trifectas$end_year_education[is.na(trifectas$start_year_education)] <- NA
+```
+
+```{r}
+#### Pulling in the data for No HSD Rate
+
+## No HSD Rate - State - Start
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","no_hsd_rate")], 
+                   by.x = c("state","start_year_education"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(no_hsd_state_start = no_hsd_rate)
+
+## No HSD Rate - State - End
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","no_hsd_rate")], 
+                   by.x = c("state","end_year_education"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(no_hsd_state_end = no_hsd_rate)
+
+## No HSD Rate - US - Start
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","no_hsd_rate")], 
+                   by.x = "start_year_education",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(no_hsd_us_start = no_hsd_rate)
+
+## No HSD Rate - US - End
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","no_hsd_rate")], 
+                   by.x = "end_year_education",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(no_hsd_us_end = no_hsd_rate)
+
+## No HSD Rate - Calculations
+trifectas$no_hsd_state_delta_abs <- trifectas$no_hsd_state_end - trifectas$no_hsd_state_start
+trifectas$no_hsd_us_delta_abs <- trifectas$no_hsd_us_end - trifectas$no_hsd_us_start
+trifectas$no_hsd_state_delta_pct <- (trifectas$no_hsd_state_delta_abs / trifectas$no_hsd_state_start)*100
+trifectas$no_hsd_us_delta_pct <- (trifectas$no_hsd_us_delta_abs / trifectas$no_hsd_us_start)*100
+trifectas$no_hsd_performance_abs <- trifectas$no_hsd_state_delta_abs - trifectas$no_hsd_us_delta_abs
+trifectas$no_hsd_performance_pct <- trifectas$no_hsd_state_delta_pct - trifectas$no_hsd_us_delta_pct
+```
+
+```{r}
+#### Pulling in the data for Bach Plus Rate
+
+## Bach Plus Rate - State - Start
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","bach_plus_rate")], 
+                   by.x = c("state","start_year_education"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(bach_plus_state_start = bach_plus_rate)
+
+## Bach Plus Rate - State - End
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","bach_plus_rate")], 
+                   by.x = c("state","end_year_education"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(bach_plus_state_end = bach_plus_rate)
+
+## Bach Plus Rate - US - Start
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","bach_plus_rate")], 
+                   by.x = "start_year_education",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(bach_plus_us_start = bach_plus_rate)
+
+## Bach Plus Rate - US - End
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","bach_plus_rate")], 
+                   by.x = "end_year_education",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(bach_plus_us_end = bach_plus_rate)
+
+## Bach Plus Rate - Calculations
+trifectas$bach_plus_state_delta_abs <- trifectas$bach_plus_state_end - trifectas$bach_plus_state_start
+trifectas$bach_plus_us_delta_abs <- trifectas$bach_plus_us_end - trifectas$bach_plus_us_start
+trifectas$bach_plus_state_delta_pct <- (trifectas$bach_plus_state_delta_abs / trifectas$bach_plus_state_start)*100
+trifectas$bach_plus_us_delta_pct <- (trifectas$bach_plus_us_delta_abs / trifectas$bach_plus_us_start)*100
+trifectas$bach_plus_performance_abs <- trifectas$bach_plus_state_delta_abs - trifectas$bach_plus_us_delta_abs
+trifectas$bach_plus_performance_pct <- trifectas$bach_plus_state_delta_pct - trifectas$bach_plus_us_delta_pct
+```
+
+```{r}
+#### Pulling in the data for GDP Per Capita
+
+## GDP Per Capita - State - Start
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","gdp_pc")], 
+                   by.x = c("state","start_year"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(gdp_state_start = gdp_pc)
+
+## GDP Per Capita - State - End
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","gdp_pc")], 
+                   by.x = c("state","end_year"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(gdp_state_end = gdp_pc)
+
+## GDP Per Capita - US - Start
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","gdp_pc")], 
+                   by.x = "start_year",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(gdp_us_start = gdp_pc)
+
+## GDP Per Capita - US - End
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","gdp_pc")], 
+                   by.x = "end_year",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(gdp_us_end = gdp_pc)
+
+## GDP Per Capita - Calculations
+trifectas$gdp_state_delta_abs <- trifectas$gdp_state_end - trifectas$gdp_state_start
+trifectas$gdp_us_delta_abs <- trifectas$gdp_us_end - trifectas$gdp_us_start
+trifectas$gdp_state_delta_pct <- (trifectas$gdp_state_delta_abs / trifectas$gdp_state_start)*100
+trifectas$gdp_us_delta_pct <- (trifectas$gdp_us_delta_abs / trifectas$gdp_us_start)*100
+trifectas$gdp_performance_abs <- trifectas$gdp_state_delta_abs - trifectas$gdp_us_delta_abs
+trifectas$gdp_performance_pct <- trifectas$gdp_state_delta_pct - trifectas$gdp_us_delta_pct
+```
+
+```{r}
+#### Pulling in the data for Unemployment
+
+## Unemployment - State - Start
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","unemployment")], 
+                   by.x = c("state","start_year"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(unemployment_state_start = unemployment)
+
+## Unemployment - State - End
+trifectas <- merge(x = trifectas, 
+                   y = data_total[, c("state", "year","unemployment")], 
+                   by.x = c("state","end_year"),
+                   by.y = c("state","year"),
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(unemployment_state_end = unemployment)
+
+## Unemployment - US - Start
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","unemployment")], 
+                   by.x = "start_year",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(unemployment_us_start = unemployment)
+
+## Unemployment - US - End
+trifectas <- merge(x = trifectas, 
+                   y = total_us[, c("year","unemployment")], 
+                   by.x = "end_year",
+                   by.y = "year",
+                   all.x=TRUE)
+
+trifectas <- trifectas %>%
+    rename(unemployment_us_end = unemployment)
+
+## Unemployment - Calculations
+trifectas$unemployment_state_delta_abs <- trifectas$unemployment_state_end - trifectas$unemployment_state_start
+trifectas$unemployment_us_delta_abs <- trifectas$unemployment_us_end - trifectas$unemployment_us_start
+trifectas$unemployment_state_delta_pct <- (trifectas$unemployment_state_delta_abs / trifectas$unemployment_state_start)*100
+trifectas$unemployment_us_delta_pct <- (trifectas$unemployment_us_delta_abs / trifectas$unemployment_us_start)*100
+trifectas$unemployment_performance_abs <- trifectas$unemployment_state_delta_abs - trifectas$unemployment_us_delta_abs
+trifectas$unemployment_performance_pct <- trifectas$unemployment_state_delta_pct - trifectas$unemployment_us_delta_pct
+```
+
+```{r}
+trifectas %>%
+    group_by(party)%>%
+    summarise(mean(medhh_performance_abs), 
+              mean(medhh_performance_pct), 
+              mean(poverty_performance_abs),
+              mean(poverty_performance_pct),
+              mean(uninsured_performance_abs),
+              mean(uninsured_performance_pct),
+              mean(no_hsd_performance_abs, na.rm = TRUE),
+              mean(no_hsd_performance_pct, na.rm = TRUE),
+              mean(bach_plus_performance_abs, na.rm = TRUE),
+              mean(bach_plus_performance_pct, na.rm = TRUE),
+              mean(gdp_performance_abs),
+              mean(gdp_performance_pct),
+              mean(unemployment_performance_abs),
+              mean(unemployment_performance_pct))
+```
+
+```{r}
+## Export completed dataset to csv
+write.csv(trifectas,'trifectas_data.csv')
+```
+
+## Running difference of means tests to check for statistical significance:
+
+```{r}
+## Adding dummy for D's (1) vs. R's (0)
+trifectas$democrats[trifectas$party == "D"] <- 1
+trifectas$democrats[trifectas$party == "R"] <- 0
+```
+
+
+```{r}
+## Difference of means for Median Household Income (Absolute value)
+r_medhh_abs <- lm(medhh_performance_abs ~ democrats, data = trifectas)
+broom::tidy(r_medhh_abs)
+```
+
+```{r}
+## Difference of means for Median Household Income (Percentage)
+r_medhh_pct <- lm(medhh_performance_pct ~ democrats, data = trifectas)
+broom::tidy(r_medhh_pct)
+```
+
+```{r}
+## Difference of means for Poverty Rate (Absolute value)
+r_poverty_abs <- lm(poverty_performance_abs ~ democrats, data = trifectas)
+broom::tidy(r_poverty_abs)
+```
+
+```{r}
+## Difference of means for Poverty Rate (Percentage)
+r_poverty_pct <- lm(poverty_performance_pct ~ democrats, data = trifectas)
+broom::tidy(r_poverty_pct)
+```
+
+```{r}
+## Difference of means for Uninsured Rate (Absolute value)
+r_uninsured_abs <- lm(uninsured_performance_abs ~ democrats, data = trifectas)
+broom::tidy(r_uninsured_abs)
+```
+
+```{r}
+## Difference of means for Uninsured Rate (Percentage)
+r_uninsured_pct <- lm(uninsured_performance_pct ~ democrats, data = trifectas)
+broom::tidy(r_uninsured_pct)
+```
+
+```{r}
+## Difference of means for No High School Diploma Rate (Absolute value)
+r_no_hsd_abs <- lm(no_hsd_performance_abs ~ democrats, data = trifectas)
+broom::tidy(r_no_hsd_abs)
+```
+
+```{r}
+## Difference of means for No High School Diploma Rate (Percentage)
+r_no_hsd_pct <- lm(no_hsd_performance_pct ~ democrats, data = trifectas)
+broom::tidy(r_no_hsd_pct)
+```
+
+```{r}
+## Difference of means for Bachelor's Degree + Rate (Absolute value)
+r_bach_plus_abs <- lm(bach_plus_performance_abs ~ democrats, data = trifectas)
+broom::tidy(r_bach_plus_abs)
+```
+
+```{r}
+## Difference of means for Bachelor's Degree + Rate (Percentage)
+r_bach_plus_pct <- lm(bach_plus_performance_pct ~ democrats, data = trifectas)
+broom::tidy(r_bach_plus_pct)
+```
+
+```{r}
+## Difference of means for GDP Per Capita (Absolute value)
+r_gdp_abs <- lm(gdp_performance_abs ~ democrats, data = trifectas)
+broom::tidy(r_gdp_abs)
+```
+
+```{r}
+## Difference of means for GDP Per Capita (Percentage)
+r_gdp_pct <- lm(gdp_performance_pct ~ democrats, data = trifectas)
+broom::tidy(r_gdp_pct)
+```
+
+```{r}
+## Difference of means for Unemployment (Absolute value)
+r_unemployment_abs <- lm(unemployment_performance_abs ~ democrats, data = trifectas)
+broom::tidy(r_unemployment_abs)
+```
+
+```{r}
+## Difference of means for Unemployment (Percentage)
+r_unemployment_pct <- lm(unemployment_performance_pct ~ democrats, data = trifectas)
+broom::tidy(r_unemployment_pct)
+```
 
